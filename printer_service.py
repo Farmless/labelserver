@@ -82,7 +82,7 @@ class LabelPrinterService:
 
             # Print the label
             be = self.backend_class(self.printer_address)
-            time.sleep(0.01)  # this is needed for some reason??
+            time.sleep(0.5)  # this is needed for some reason??
             be.write(qlr.data)
             be.dispose()
 
