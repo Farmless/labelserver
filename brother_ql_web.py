@@ -130,17 +130,33 @@ def print_label():
             return {"error": "Image data is required"}
 
         # Extract parameters with defaults from config
-        label_size = data.get("label_size", "62")
         threshold = data.get("threshold", 70)
         rotate = data.get("rotate", "auto")
         printer_name = data.get("printer", None)
 
-        # Get the printer service
+        # Get the printer service and determine label size
         if printer_name:
             printer_service = printer_manager.get_printer_service(printer_name)
             if not printer_service:
                 response.status = 400
                 return {"error": f"Printer '{printer_name}' not found"}
+
+            # Get printer ID to find default label size
+            printer_id = None
+            for printer in printer_manager.list_printers():
+                if printer["display_name"] == printer_name:
+                    printer_id = printer["printer_id"]
+                    break
+
+            # Use specified label size or printer's default
+            label_size = data.get(
+                "label_size",
+                (
+                    printer_manager.get_default_label_size(printer_id)
+                    if printer_id
+                    else "62"
+                ),
+            )
         else:
             # Use default printer
             default_printer = printer_manager.get_default_printer()
@@ -148,6 +164,22 @@ def print_label():
                 response.status = 400
                 return {"error": "No printers available"}
             printer_service = printer_manager.get_printer_service(default_printer)
+
+            # Get default printer's default label size
+            printer_id = None
+            for printer in printer_manager.list_printers():
+                if printer["display_name"] == default_printer:
+                    printer_id = printer["printer_id"]
+                    break
+
+            label_size = data.get(
+                "label_size",
+                (
+                    printer_manager.get_default_label_size(printer_id)
+                    if printer_id
+                    else "62"
+                ),
+            )
 
         # Print the label directly
         result = printer_service.print_label(
@@ -191,9 +223,10 @@ def add_printer():
         port = data.get("port", 9100)
         model = data.get("model", "QL-500")
         display_name = data.get("display_name")
+        default_label_size = data.get("default_label_size", "62")
 
         success = printer_manager.add_manual_printer(
-            printer_id, address, port, model, display_name
+            printer_id, address, port, model, display_name, default_label_size
         )
 
         if success:
@@ -258,10 +291,12 @@ def test_print_printer(printer_id):
     try:
         # Get the printer display name
         display_name = None
+        default_label_size = "62"  # fallback
         printers = printer_manager.list_printers()
         for printer in printers:
             if printer["printer_id"] == printer_id:
                 display_name = printer["display_name"]
+                default_label_size = printer.get("default_label_size", "62")
                 break
 
         if not display_name:
@@ -278,20 +313,75 @@ def test_print_printer(printer_id):
         test_image = generate_test_image()
         image_base64 = image_to_base64(test_image)
 
-        # Print the test label
+        # Print the test label using the printer's default label size
         result = printer_service.print_label(
             image_data=image_base64,
-            label_size="62",  # Standard size
+            label_size=default_label_size,
             threshold=70,
             rotate="auto",
         )
 
         return {
             "success": True,
-            "message": f"Test label printed successfully on '{display_name}'",
+            "message": f"Test label printed successfully on '{display_name}' (size: {default_label_size})",
         }
     except Exception as e:
         logger.error(f"Error printing test label: {e}")
+        response.status = 500
+        return {"error": str(e)}
+
+
+@post("/api/printers/<printer_id>/default-label-size")
+def set_printer_default_label_size(printer_id):
+    """Set default label size for a printer"""
+    try:
+        data = request.json
+
+        if not data or "default_label_size" not in data:
+            response.status = 400
+            return {"error": "default_label_size is required"}
+
+        label_size = data["default_label_size"]
+
+        # Validate label size (basic validation)
+        valid_sizes = [
+            "12",
+            "29",
+            "38",
+            "50",
+            "54",
+            "62",
+            "102",
+            "17x54",
+            "17x87",
+            "23x23",
+            "29x42",
+            "29x90",
+            "38x90",
+            "39x48",
+            "52x29",
+            "62x29",
+            "62x100",
+        ]
+        if label_size not in valid_sizes:
+            response.status = 400
+            return {
+                "error": f"Invalid label size. Valid sizes: {', '.join(valid_sizes)}"
+            }
+
+        success = printer_manager.set_default_label_size(printer_id, label_size)
+
+        if success:
+            return {
+                "success": True,
+                "message": "Default label size updated successfully",
+            }
+        else:
+            response.status = 400
+            return {"error": "Failed to update default label size or printer not found"}
+
+    except Exception as e:
+        logger.error(f"Error setting default label size: {e}")
         response.status = 500
         return {"error": str(e)}
 

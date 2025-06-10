@@ -97,6 +97,13 @@
               <input type="text" class="form-control" id="printerDisplayName" placeholder="Office Printer">
               <small class="form-text text-muted">Friendly name for this printer (optional)</small>
             </div>
+            <div class="form-group">
+              <label for="printerDefaultLabelSize">Default Label Size:</label>
+              <select class="form-control" id="printerDefaultLabelSize">
+                <option value="62" selected>62mm</option>
+                <option value="62red">62mm red</option>
+              </select>
+            </div>
           </form>
         </div>
         <div class="modal-footer">
@@ -133,6 +140,36 @@
       </div>
     </div>
   </div>
+
+  <!-- Edit Default Label Size Modal -->
+  <div class="modal fade" id="editLabelSizeModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+      <div class="modal-content">
+        <div class="modal-header">
+          <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+            <span aria-hidden="true">&times;</span>
+          </button>
+          <h4 class="modal-title">Edit Default Label Size</h4>
+        </div>
+        <div class="modal-body">
+          <form id="editLabelSizeForm">
+            <div class="form-group">
+              <label for="newLabelSize">Default Label Size:</label>
+              <select class="form-control" id="newLabelSize" required>
+                <option value="62">62mm</option>
+                <option value="62red">62mm red</option>
+              </select>
+            </div>
+            <input type="hidden" id="editLabelSizePrinterId">
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-primary" onclick="updateLabelSize()">Update</button>
+        </div>
+      </div>
+    </div>
+  </div>
 {% endblock %}
 
 {% block javascript %}
@@ -148,7 +185,7 @@ function loadPrinters() {
         html = '<div class="alert alert-info">No printers discovered yet. Click "Refresh" to scan for printers, or add a manual printer.</div>';
       } else {
         html = '<div class="table-responsive"><table class="table table-striped">';
-        html += '<thead><tr><th>Display Name</th><th>Address</th><th>Model</th><th>Status</th><th>Actions</th></tr></thead>';
+        html += '<thead><tr><th>Display Name</th><th>Address</th><th>Model</th><th>Default Size</th><th>Status</th><th>Actions</th></tr></thead>';
         html += '<tbody>';
         
         printers.forEach(function(printer) {
@@ -159,6 +196,12 @@ function loadPrinters() {
             <td><strong>${printer.display_name}</strong></td>
             <td>${printer.address}:${printer.port}</td>
             <td>${printer.model}</td>
+            <td>
+              <span class="label-size-display" data-printer-id="${printer.printer_id}">${printer.default_label_size}</span>
+              <button class="btn btn-xs btn-link" onclick="editLabelSize('${printer.printer_id}', '${printer.default_label_size}')" title="Edit default label size">
+                <span class="glyphicon glyphicon-pencil"></span>
+              </button>
+            </td>
             <td>${statusBadge}</td>
             <td>${actionButtons}</td>
           </tr>`;
@@ -241,6 +284,7 @@ function addPrinter() {
   const port = parseInt($('#printerPort').val());
   const model = $('#printerModel').val();
   const displayName = $('#printerDisplayName').val();
+  const defaultLabelSize = $('#printerDefaultLabelSize').val();
   
   if (!printerId || !address) {
     alert('Please fill in all required fields');
@@ -251,7 +295,8 @@ function addPrinter() {
     printer_id: printerId,
     address: address,
     port: port,
-    model: model
+    model: model,
+    default_label_size: defaultLabelSize
   };
   
   if (displayName) {
@@ -320,6 +365,37 @@ function removePrinter(printerId) {
     },
     error: function(xhr, status, error) {
       alert('Error removing printer: ' + (xhr.responseJSON ? xhr.responseJSON.error : error));
+    }
+  });
+}
+
+function editLabelSize(printerId, currentSize) {
+  $('#editLabelSizePrinterId').val(printerId);
+  $('#newLabelSize').val(currentSize);
+  $('#editLabelSizeModal').modal('show');
+}
+
+function updateLabelSize() {
+  const printerId = $('#editLabelSizePrinterId').val();
+  const newLabelSize = $('#newLabelSize').val();
+  
+  if (!newLabelSize) {
+    alert('Please select a label size');
+    return;
+  }
+  
+  $.ajax({
+    type: 'POST',
+    url: '/api/printers/' + encodeURIComponent(printerId) + '/default-label-size',
+    contentType: 'application/json',
+    data: JSON.stringify({default_label_size: newLabelSize}),
+    success: function(response) {
+      $('#editLabelSizeModal').modal('hide');
+      loadPrinters();
+      alert('Default label size updated successfully');
+    },
+    error: function(xhr, status, error) {
+      alert('Error updating label size: ' + (xhr.responseJSON ? xhr.responseJSON.error : error));
     }
   });
 }

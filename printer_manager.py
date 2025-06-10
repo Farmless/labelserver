@@ -14,6 +14,9 @@ class PrinterManager:
         self.backend_class = backend_class
         self.printer_configs_file = "printer_configs.json"
         self.printer_display_names: Dict[str, str] = {}  # printer_id -> display_name
+        self.printer_default_label_sizes: Dict[str, str] = (
+            {}
+        )  # printer_id -> label_size
         self.printer_services: Dict[str, LabelPrinterService] = (
             {}
         )  # display_name -> service
@@ -37,6 +40,9 @@ class PrinterManager:
                 with open(self.printer_configs_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     self.printer_display_names = data.get("display_names", {})
+                    self.printer_default_label_sizes = data.get(
+                        "default_label_sizes", {}
+                    )
 
                     # Load manual printers
                     manual_printers = data.get("manual_printers", {})
@@ -72,6 +78,7 @@ class PrinterManager:
 
             data = {
                 "display_names": self.printer_display_names,
+                "default_label_sizes": self.printer_default_label_sizes,
                 "manual_printers": manual_printers,
             }
 
@@ -91,6 +98,13 @@ class PrinterManager:
                 # Set default display name if not already set
                 if printer_id not in self.printer_display_names:
                     self.printer_display_names[printer_id] = printer_info.name
+
+                # Set default label size if not already set
+                if printer_id not in self.printer_default_label_sizes:
+                    self.printer_default_label_sizes[printer_id] = (
+                        "62"  # Default to 62mm
+                    )
+
                     self._save_printer_configs()
         except Exception as e:
             logger.error(f"Error in _on_printer_found: {e}")
@@ -139,22 +153,43 @@ class PrinterManager:
 
             return service
 
+    def get_default_label_size(self, printer_id: str) -> str:
+        """Get the default label size for a printer"""
+        with self._lock:
+            return self.printer_default_label_sizes.get(printer_id, "62")
+
+    def set_default_label_size(self, printer_id: str, label_size: str) -> bool:
+        """Set the default label size for a printer"""
+        with self._lock:
+            if printer_id not in self.discovery_service.get_printers():
+                return False
+
+            self.printer_default_label_sizes[printer_id] = label_size
+            self._save_printer_configs()
+            return True
+
     def list_printers(self) -> List[Dict[str, Any]]:
         """List all available printers with their display names and status"""
+        print("Listing printers")
         # Get printers from discovery service (this has its own lock)
         discovered_printers = self.discovery_service.get_printers()
+        print(f"Discovered printers: {discovered_printers}")
 
         # Only lock for the display names access
         with self._lock:
+            print("Listing printers 2")
             display_names_copy = self.printer_display_names.copy()
+            label_sizes_copy = self.printer_default_label_sizes.copy()
 
         printers = []
         for printer_id, printer_info in discovered_printers.items():
             display_name = display_names_copy.get(printer_id, printer_id)
+            default_label_size = label_sizes_copy.get(printer_id, "62")
 
             printer_data = printer_info.to_dict()
             printer_data["display_name"] = display_name
             printer_data["printer_id"] = printer_id
+            printer_data["default_label_size"] = default_label_size
 
             printers.append(printer_data)
 
@@ -189,6 +224,7 @@ class PrinterManager:
         port: int = 9100,
         model: str = "QL-500",
         display_name: Optional[str] = None,
+        default_label_size: str = "62",
     ) -> bool:
         """Manually add a printer"""
         try:
@@ -202,6 +238,9 @@ class PrinterManager:
                 self.printer_display_names[printer_id] = display_name
             elif printer_id not in self.printer_display_names:
                 self.printer_display_names[printer_id] = printer_id
+
+            # Set default label size
+            self.printer_default_label_sizes[printer_id] = default_label_size
 
             self._save_printer_configs()
             return True
@@ -223,8 +262,9 @@ class PrinterManager:
             if printer_id in self.discovery_service.printers:
                 del self.discovery_service.printers[printer_id]
 
-            # Remove display name
+            # Remove display name and default label size
             display_name = self.printer_display_names.pop(printer_id, None)
+            self.printer_default_label_sizes.pop(printer_id, None)
 
             # Remove service
             if display_name and display_name in self.printer_services:

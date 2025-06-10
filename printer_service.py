@@ -1,3 +1,4 @@
+import time
 import logging
 from io import BytesIO
 from typing import Dict, Any
@@ -81,6 +82,7 @@ class LabelPrinterService:
 
             # Print the label
             be = self.backend_class(self.printer_address)
+            time.sleep(0.01)  # this is needed for some reason??
             be.write(qlr.data)
             be.dispose()
 
