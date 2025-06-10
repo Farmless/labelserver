@@ -351,6 +351,7 @@ def set_printer_default_label_size(printer_id):
             "50",
             "54",
             "62",
+            "62red",
             "102",
             "17x54",
             "17x87",
