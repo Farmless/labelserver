@@ -141,14 +141,11 @@ class PrinterManager:
 
     def list_printers(self) -> List[Dict[str, Any]]:
         """List all available printers with their display names and status"""
-        print("Listing printers")
         # Get printers from discovery service (this has its own lock)
         discovered_printers = self.discovery_service.get_printers()
-        print(f"Discovered printers: {discovered_printers}")
 
         # Only lock for the display names access
         with self._lock:
-            print("Listing printers 2")
             display_names_copy = self.printer_display_names.copy()
 
         printers = []

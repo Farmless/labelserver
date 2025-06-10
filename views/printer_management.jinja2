@@ -185,7 +185,11 @@ function getStatusBadge(status) {
 }
 
 function getActionButtons(printer) {
-  let buttons = `<button class="btn btn-sm btn-default" onclick="editDisplayName('${printer.printer_id}', '${printer.display_name}')">
+  let buttons = `<button class="btn btn-sm btn-success" onclick="testPrint('${printer.printer_id}', '${printer.display_name}')">
+    <span class="glyphicon glyphicon-print"></span> Test Print
+  </button> `;
+  
+  buttons += `<button class="btn btn-sm btn-default" onclick="editDisplayName('${printer.printer_id}', '${printer.display_name}')">
     <span class="glyphicon glyphicon-edit"></span> Rename
   </button>`;
   
@@ -200,6 +204,35 @@ function getActionButtons(printer) {
 
 function refreshPrinters() {
   loadPrinters();
+}
+
+function testPrint(printerId, displayName) {
+  if (!confirm(`Print a test label on "${displayName}"?`)) {
+    return;
+  }
+  
+  // Show loading state
+  const button = event.target.closest('button');
+  const originalHtml = button.innerHTML;
+  button.innerHTML = '<span class="glyphicon glyphicon-refresh glyphicon-spin"></span> Printing...';
+  button.disabled = true;
+  
+  $.ajax({
+    type: 'POST',
+    url: '/api/printers/' + encodeURIComponent(printerId) + '/test-print',
+    success: function(response) {
+      alert('Test print successful on ' + displayName);
+      // Restore button
+      button.innerHTML = originalHtml;
+      button.disabled = false;
+    },
+    error: function(xhr, status, error) {
+      alert('Error printing test label: ' + (xhr.responseJSON ? xhr.responseJSON.error : error));
+      // Restore button
+      button.innerHTML = originalHtml;
+      button.disabled = false;
+    }
+  });
 }
 
 function addPrinter() {
