@@ -14,4 +14,5 @@ dependencies = [
     "python-dotenv>=1.0.1",
     "supabase>=2.11.0",
     "websockets>=13.1",
+    "zeroconf>=0.147.0",
 ]

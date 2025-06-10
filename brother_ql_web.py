@@ -8,125 +8,249 @@ This is a web service to print labels on Brother QL label printers.
 import sys, logging, random, json, argparse
 from typing import Dict, Any
 
-from bottle import run, route, get, post, response, request, redirect, static_file
-from brother_ql.devicedependent import models, label_type_specs, label_sizes
+from bottle import run, route, get, post, response, request, static_file
+from brother_ql.devicedependent import models
 from brother_ql.backends import backend_factory, guess_backend
+from jinja2 import Environment, FileSystemLoader
+import os
 
 from printer_service import LabelPrinterService
+from printer_manager import PrinterManager
 
 logger = logging.getLogger(__name__)
 
-LABEL_SIZES = [(name, label_type_specs[name]['name']) for name in label_sizes]
-printer_service = None
+printer_manager = None
 
-try:
-    with open('config.json', encoding='utf-8') as fh:
-        CONFIG = json.load(fh)
-except FileNotFoundError as e:
-    with open('config.example.json', encoding='utf-8') as fh:
-        CONFIG = json.load(fh)
+# Setup Jinja2 template environment
+template_dir = os.path.join(os.path.dirname(__file__), "views")
+jinja_env = Environment(loader=FileSystemLoader(template_dir))
 
-@route('/')
+
+@route("/")
 def index():
-    redirect('/api')
+    """Serve the printer management interface"""
+    try:
+        # Get available printers
+        printers = printer_manager.list_printers() if printer_manager else []
 
-@route('/static/<filename:path>')
+        template = jinja_env.get_template("printer_management.jinja2")
+        return template.render(
+            website={
+                "HTML_TITLE": "Printer Manager",
+                "PAGE_TITLE": "Brother QL Printer Manager",
+                "PAGE_HEADLINE": "Manage your printers",
+            },
+            printers=printers,
+        )
+    except Exception as e:
+        logger.error(f"Error rendering printer management: {e}")
+        return f"<h1>Error</h1><p>Failed to load printer management: {str(e)}</p>"
+
+
+@route("/static/<filename:path>")
 def serve_static(filename):
-    return static_file(filename, root='./static')
+    return static_file(filename, root="./static")
 
-@route('/api')
+
+@route("/api")
 def api_documentation():
     """Serve API documentation"""
-    return static_file('API_DOCS.md', root='.')
+    return static_file("API_DOCS.md", root=".")
 
-@post('/api/print')
+
+@post("/api/print")
 def print_label():
     """Print a label directly via HTTP request"""
     try:
         data = request.json
 
-        if not data or 'image' not in data:
+        if not data or "image" not in data:
             response.status = 400
-            return {'error': 'Image data is required'}
+            return {"error": "Image data is required"}
 
         # Extract parameters with defaults from config
-        label_size = data.get('label_size', CONFIG['LABEL']['DEFAULT_SIZE'])
-        threshold = data.get('threshold', 70)
-        rotate = data.get('rotate', 'auto')
+        label_size = data.get("label_size", "62")
+        threshold = data.get("threshold", 70)
+        rotate = data.get("rotate", "auto")
+        printer_name = data.get("printer", None)
+
+        # Get the printer service
+        if printer_name:
+            printer_service = printer_manager.get_printer_service(printer_name)
+            if not printer_service:
+                response.status = 400
+                return {"error": f"Printer '{printer_name}' not found"}
+        else:
+            # Use default printer
+            default_printer = printer_manager.get_default_printer()
+            if not default_printer:
+                response.status = 400
+                return {"error": "No printers available"}
+            printer_service = printer_manager.get_printer_service(default_printer)
 
         # Print the label directly
         result = printer_service.print_label(
-            image_data=data['image'],
+            image_data=data["image"],
             label_size=label_size,
             threshold=threshold,
-            rotate=rotate
+            rotate=rotate,
         )
 
-        return {'success': True, 'message': 'Label printed successfully'}
+        return {"success": True, "message": "Label printed successfully"}
     except Exception as e:
         logger.error(f"Error printing label: {e}")
         response.status = 500
-        return {'error': str(e)}
+        return {"error": str(e)}
+
+
+@get("/api/printers")
+def list_printers():
+    """List all available printers"""
+    try:
+        printers = printer_manager.list_printers()
+        return {"printers": printers}
+    except Exception as e:
+        logger.error(f"Error listing printers: {e}")
+        response.status = 500
+        return {"error": str(e)}
+
+
+@post("/api/printers")
+def add_printer():
+    """Add a manual printer"""
+    try:
+        data = request.json
+
+        if not data or "printer_id" not in data or "address" not in data:
+            response.status = 400
+            return {"error": "printer_id and address are required"}
+
+        printer_id = data["printer_id"]
+        address = data["address"]
+        port = data.get("port", 9100)
+        model = data.get("model", "QL-500")
+        display_name = data.get("display_name")
+
+        success = printer_manager.add_manual_printer(
+            printer_id, address, port, model, display_name
+        )
+
+        if success:
+            return {"success": True, "message": "Printer added successfully"}
+        else:
+            response.status = 400
+            return {"error": "Failed to add printer"}
+
+    except Exception as e:
+        logger.error(f"Error adding printer: {e}")
+        response.status = 500
+        return {"error": str(e)}
+
+
+@post("/api/printers/<printer_id>/display-name")
+def set_printer_display_name(printer_id):
+    """Set display name for a printer"""
+    try:
+        data = request.json
+
+        if not data or "display_name" not in data:
+            response.status = 400
+            return {"error": "display_name is required"}
+
+        display_name = data["display_name"]
+
+        success = printer_manager.set_display_name(printer_id, display_name)
+
+        if success:
+            return {"success": True, "message": "Display name updated successfully"}
+        else:
+            response.status = 400
+            return {"error": "Failed to update display name or printer not found"}
+
+    except Exception as e:
+        logger.error(f"Error setting display name: {e}")
+        response.status = 500
+        return {"error": str(e)}
+
+
+@post("/api/printers/<printer_id>/remove")
+def remove_printer(printer_id):
+    """Remove a manually added printer"""
+    try:
+        success = printer_manager.remove_printer(printer_id)
+
+        if success:
+            return {"success": True, "message": "Printer removed successfully"}
+        else:
+            response.status = 400
+            return {"error": "Failed to remove printer or printer not found"}
+
+    except Exception as e:
+        logger.error(f"Error removing printer: {e}")
+        response.status = 500
+        return {"error": str(e)}
+
 
 def main():
-    global DEBUG, BACKEND_CLASS, CONFIG, printer_service
+    global DEBUG, BACKEND_CLASS, printer_manager
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--port', default=False)
-    parser.add_argument('--loglevel', type=lambda x: getattr(logging, x.upper()), default=False)
-    parser.add_argument('--default-label-size', default=False, help='Label size inserted in your printer. Defaults to 62.')
-    parser.add_argument('--model', default=False, choices=models, help='The model of your printer (default: QL-500)')
-    parser.add_argument('--disable-printer-service', action='store_true', help='Disable the printer service')
-    parser.add_argument('printer',  nargs='?', default=False, help='String descriptor for the printer to use (like tcp://192.168.0.23:9100 or file:///dev/usb/lp0)')
-    args = parser.parse_args()
+    parser.add_argument("--port", default=False)
+    parser.add_argument(
+        "--loglevel", type=lambda x: getattr(logging, x.upper()), default=False
+    )
 
-    if args.printer:
-        CONFIG['PRINTER']['PRINTER'] = args.printer
+    parser.add_argument(
+        "--model",
+        default=False,
+        choices=models,
+        help="The model of your printer (default: QL-500)",
+    )
+    parser.add_argument(
+        "--disable-printer-service",
+        action="store_true",
+        help="Disable the printer service",
+    )
+    parser.add_argument(
+        "printer",
+        nargs="?",
+        default=False,
+        help="String descriptor for the printer to use (like tcp://192.168.0.23:9100 or file:///dev/usb/lp0)",
+    )
+    args = parser.parse_args()
 
     if args.port:
         PORT = args.port
     else:
-        PORT = CONFIG['SERVER']['PORT']
+        PORT = 8013
 
     if args.loglevel:
         LOGLEVEL = args.loglevel
     else:
-        LOGLEVEL = CONFIG['SERVER']['LOGLEVEL']
+        LOGLEVEL = "WARNING"
 
-    if LOGLEVEL == 'DEBUG':
+    if LOGLEVEL == "DEBUG":
         DEBUG = True
     else:
         DEBUG = False
 
-    if args.model:
-        CONFIG['PRINTER']['MODEL'] = args.model
-
-    if args.default_label_size:
-        CONFIG['LABEL']['DEFAULT_SIZE'] = args.default_label_size
-
     logging.basicConfig(level=LOGLEVEL)
 
-    try:
-        selected_backend = guess_backend(CONFIG['PRINTER']['PRINTER'])
-    except ValueError:
-        parser.error("Couldn't guess the backend to use from the printer string descriptor")
-    BACKEND_CLASS = backend_factory(selected_backend)['backend_class']
-
-    print("available label sizes:")
-    print(label_sizes)
-    if CONFIG['LABEL']['DEFAULT_SIZE'] not in label_sizes:
-        parser.error("Invalid --default-label-size. Please choose one of the following:\n:" + " ".join(label_sizes))
-    print("using label size: " + CONFIG['LABEL']['DEFAULT_SIZE'])
+    BACKEND_CLASS = backend_factory("network")["backend_class"]
 
     if not args.disable_printer_service:
-        # Initialize label printer service
-        printer_service = LabelPrinterService(CONFIG, BACKEND_CLASS)
+        # Initialize printer manager
+        printer_manager = PrinterManager(BACKEND_CLASS)
+        # Start discovery after initialization
+        printer_manager.start_discovery()
 
-    # Start web server
-    run(
-        host=CONFIG['SERVER']['HOST'],
-        port=PORT,
-        debug=DEBUG
-    )
+    try:
+        # Start web server
+        run(host="0.0.0.0", port=PORT, debug=DEBUG)
+    finally:
+        # Clean shutdown
+        if printer_manager:
+            printer_manager.shutdown()
+
 
 if __name__ == "__main__":
     main()

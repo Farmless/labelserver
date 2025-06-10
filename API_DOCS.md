@@ -1,8 +1,99 @@
 # Brother QL Label Printer API Documentation
 
-This service provides a queue-based API for printing labels on Brother QL label printers.
+This service provides an HTTP API for printing labels on Brother QL label printers with support for multiple printers and automatic discovery.
 
-## Print Queue
+## API Endpoints
+
+### Print Label
+
+`POST /api/print`
+
+Print a label directly via HTTP request.
+
+**Request Body:**
+
+```json
+{
+  "image": "base64_encoded_image_data",
+  "label_size": "62", // optional, defaults to config default size
+  "threshold": 70, // optional, defaults to 70
+  "rotate": "auto", // optional, defaults to "auto"
+  "printer": "Office Printer" // optional, printer display name
+}
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "message": "Label printed successfully"
+}
+```
+
+### List Printers
+
+`GET /api/printers`
+
+List all available printers with their status.
+
+**Response:**
+
+```json
+{
+  "printers": [
+    {
+      "name": "printer_id",
+      "display_name": "Office Printer",
+      "address": "192.168.1.100",
+      "port": 9100,
+      "model": "QL-700",
+      "status": "Discovered",
+      "connection_string": "tcp://192.168.1.100:9100"
+    }
+  ]
+}
+```
+
+### Add Manual Printer
+
+`POST /api/printers`
+
+Add a printer manually.
+
+**Request Body:**
+
+```json
+{
+  "printer_id": "my-printer-1",
+  "address": "192.168.1.100",
+  "port": 9100,
+  "model": "QL-700",
+  "display_name": "Office Printer"
+}
+```
+
+### Set Printer Display Name
+
+`POST /api/printers/{printer_id}/display-name`
+
+Set or update the display name for a printer.
+
+**Request Body:**
+
+```json
+{
+  "display_name": "New Display Name"
+}
+```
+
+### Remove Manual Printer
+
+`POST /api/printers/{printer_id}/remove`
+
+Remove a manually added printer.
+
+## Print Queue (Legacy Support)
 
 Labels are printed by submitting print jobs to a queue. The service processes jobs from the queue in FIFO order.
 
@@ -13,9 +104,9 @@ Print jobs should be submitted to the `label_print_jobs` queue in Supabase with 
 ```json
 {
   "image": "base64_encoded_image_data",
-  "label_size": "62",  // optional, defaults to config default size
-  "threshold": 70,     // optional, defaults to 70
-  "rotate": "auto"     // optional, defaults to "auto"
+  "label_size": "62", // optional, defaults to config default size
+  "threshold": 70, // optional, defaults to 70
+  "rotate": "auto" // optional, defaults to "auto"
 }
 ```
 
@@ -44,17 +135,15 @@ Print jobs should be submitted to the `label_print_jobs` queue in Supabase with 
 Here's an example of submitting a print job using the Supabase client:
 
 ```javascript
-const { data, error } = await supabase
-  .schema('pgmq_public')
-  .rpc('send', {
-    queue_name: 'label_print_jobs',
-    message: {
-      image: 'base64_encoded_image_data',
-      label_size: '62',
-      threshold: 70,
-      rotate: 'auto'
-    }
-  });
+const { data, error } = await supabase.schema("pgmq_public").rpc("send", {
+  queue_name: "label_print_jobs",
+  message: {
+    image: "base64_encoded_image_data",
+    label_size: "62",
+    threshold: 70,
+    rotate: "auto",
+  },
+});
 ```
 
 ## Error Handling
@@ -62,7 +151,8 @@ const { data, error } = await supabase
 The service will log errors that occur during print job processing. Failed jobs are currently discarded, but the error will be logged with details about what went wrong.
 
 Common errors:
+
 - Invalid base64 image data
 - Unsupported image format
 - Invalid label size
-- Printer communication errors 
+- Printer communication errors
