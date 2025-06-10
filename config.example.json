@@ -23,5 +23,9 @@
     "HTML_TITLE": "Label Designer",
     "PAGE_TITLE": "Brother QL Label Designer",
     "PAGE_HEADLINE": "Design your label and print it…"
+  },
+  "SUPABASE": {
+    "URL": "your-supabase-project-url",
+    "KEY": "your-supabase-anon-key"
   }
 }
